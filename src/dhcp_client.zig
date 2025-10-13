@@ -96,8 +96,8 @@ pub const Lease = struct {
     server_id: [4]u8,
     obtained_at: i64, // Unix timestamp
 
-    pub fn deinit(self: *Lease) void {
-        self.dns_servers.deinit();
+    pub fn deinit(self: *Lease, allocator: std.mem.Allocator) void {
+        self.dns_servers.deinit(allocator);
     }
 
     pub fn isExpired(self: Lease) bool {
@@ -347,7 +347,7 @@ pub const DhcpClient = struct {
     /// Release current lease
     pub fn release(self: *Self) !void {
         if (self.lease) |*lease| {
-            lease.deinit();
+            lease.deinit(self.allocator);
             self.lease = null;
         }
         self.state = .INIT;
@@ -355,7 +355,7 @@ pub const DhcpClient = struct {
 
     pub fn deinit(self: *Self) void {
         if (self.lease) |*lease| {
-            lease.deinit();
+            lease.deinit(self.allocator);
         }
         self.allocator.destroy(self);
     }
@@ -386,7 +386,7 @@ test "Lease expiration" {
         .server_id = [_]u8{ 192, 168, 1, 1 },
         .obtained_at = std.time.timestamp() - 7200, // 2 hours ago
     };
-    defer @constCast(&lease).dns_servers.deinit();
+    defer @constCast(&lease).dns_servers.deinit(std.testing.allocator);
 
     try std.testing.expect(lease.isExpired());
     try std.testing.expect(lease.needsRenewal());

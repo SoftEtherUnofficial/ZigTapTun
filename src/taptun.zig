@@ -14,6 +14,8 @@ const builtin = @import("builtin");
 // Core modules
 pub const L2L3Translator = @import("translator.zig").L2L3Translator;
 pub const ArpHandler = @import("arp.zig").ArpHandler;
+pub const DhcpClient = @import("dhcp_client.zig").DhcpClient;
+pub const DhcpPacket = @import("dhcp_client.zig").DhcpPacket;
 
 // High-level adapter (combines device + translator)
 pub const TunAdapter = @import("tun_adapter.zig").TunAdapter;

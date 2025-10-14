@@ -65,18 +65,13 @@ pub const RouteManager = struct {
         self.vpn_gateway = vpn_gw;
 
         // Delete all existing default routes (macOS may have multiple)
-        std.log.info("Deleting existing default routes...", .{});
-        for (0..3) |attempt| {
+        for (0..3) |_| {
             const delete_result = try std.process.Child.run(.{
                 .allocator = self.allocator,
                 .argv = &[_][]const u8{ "route", "-n", "delete", "default" },
             });
             defer self.allocator.free(delete_result.stdout);
             defer self.allocator.free(delete_result.stderr);
-
-            if (attempt == 0) {
-                std.log.debug("Delete attempt {d}, exit: {}", .{ attempt + 1, delete_result.term });
-            }
         }
 
         // Add VPN default route
@@ -88,7 +83,6 @@ pub const RouteManager = struct {
             vpn_gw[3],
         });
 
-        std.log.info("Adding VPN default route: {s}", .{cmd});
         const add_result = try std.process.Child.run(.{
             .allocator = self.allocator,
             .argv = &[_][]const u8{ "route", "-n", "add", "-inet", "default", cmd },
@@ -112,12 +106,6 @@ pub const RouteManager = struct {
         }
 
         self.routes_configured = true;
-        std.log.info("✅ Default route now points to VPN gateway {d}.{d}.{d}.{d}", .{
-            vpn_gw[0],
-            vpn_gw[1],
-            vpn_gw[2],
-            vpn_gw[3],
-        });
     }
 
     /// Add host route (e.g., VPN server through original gateway)

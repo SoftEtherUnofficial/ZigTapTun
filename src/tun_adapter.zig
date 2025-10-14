@@ -195,7 +195,6 @@ pub const TunAdapter = struct {
 
     /// Get device name (e.g., "utun4")
     pub fn getDeviceName(self: *Self) []const u8 {
-        std.debug.print("[DEBUG] TunAdapter.getDeviceName: about to call device.getName(), device.name_len={d}\n", .{self.device.name_len});
         return self.device.getName();
     }
 

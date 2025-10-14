@@ -89,23 +89,6 @@ pub const L2L3Translator = struct {
     pub fn ipToEthernet(self: *Self, ip_packet: []const u8) ![]const u8 {
         if (ip_packet.len == 0) return error.InvalidPacket;
 
-        // Learn our IP from source address if enabled
-        if (self.options.learn_ip and self.our_ip == null) {
-            if (ip_packet.len >= 20 and (ip_packet[0] & 0xF0) == 0x40) { // IPv4
-                const src_ip = std.mem.readInt(u32, ip_packet[12..16], .big);
-                // Ignore link-local addresses (169.254.x.x)
-                if ((src_ip & 0xFFFF0000) != 0xA9FE0000) {
-                    self.our_ip = src_ip;
-                    if (self.options.verbose) {
-                        std.debug.print("[L2L3] Learned our IP: {}.{}.{}.{}\n", .{
-                            (src_ip >> 24) & 0xFF, (src_ip >> 16) & 0xFF,
-                            (src_ip >> 8) & 0xFF,  src_ip & 0xFF,
-                        });
-                    }
-                }
-            }
-        }
-
         // Determine EtherType and destination MAC
         var ethertype: u16 = undefined;
         var dest_mac: [6]u8 = undefined;
@@ -117,12 +100,8 @@ pub const L2L3Translator = struct {
             // Use learned gateway MAC if available, otherwise broadcast
             if (self.gateway_mac) |gw_mac| {
                 dest_mac = gw_mac;
-                // Verbose log removed - too noisy during normal operation
             } else {
                 @memset(&dest_mac, 0xFF); // Broadcast
-                if (self.options.verbose) {
-                    std.debug.print("[L2L3] ⚠️  Gateway MAC unknown, using broadcast: FF:FF:FF:FF:FF:FF\n", .{});
-                }
             }
         } else if (ip_packet.len > 0 and (ip_packet[0] & 0xF0) == 0x60) {
             // IPv6 packet
@@ -171,9 +150,6 @@ pub const L2L3Translator = struct {
             ip_packet = eth_frame[14..];
         } else {
             // Unknown EtherType - ignore
-            if (self.options.verbose) {
-                std.debug.print("[L2L3] Ignoring unknown EtherType: 0x{X:0>4}\n", .{ethertype});
-            }
             return null;
         }
 
@@ -182,10 +158,6 @@ pub const L2L3Translator = struct {
         @memcpy(result, ip_packet);
 
         self.packets_translated_l2_to_l3 += 1;
-
-        if (self.options.verbose) {
-            std.debug.print("[L2L3] L2→L3: {} bytes Ethernet → {} bytes IP\n", .{ eth_frame.len, ip_packet.len });
-        }
 
         return result;
     }
@@ -200,27 +172,6 @@ pub const L2L3Translator = struct {
         // Learn gateway MAC from ARP replies (opcode=2)
         if (opcode == 2 and self.options.learn_gateway_mac) {
             const sender_ip = std.mem.readInt(u32, arp_data[14..18], .big);
-
-            if (self.options.verbose) {
-                std.debug.print("[L2L3] 🔍 ARP Reply received from {}.{}.{}.{} (0x{X:0>8}), my gateway_ip=", .{
-                    (sender_ip >> 24) & 0xFF,
-                    (sender_ip >> 16) & 0xFF,
-                    (sender_ip >> 8) & 0xFF,
-                    sender_ip & 0xFF,
-                    sender_ip,
-                });
-                if (self.gateway_ip) |gw_ip| {
-                    std.debug.print("{}.{}.{}.{} (0x{X:0>8})\n", .{
-                        (gw_ip >> 24) & 0xFF,
-                        (gw_ip >> 16) & 0xFF,
-                        (gw_ip >> 8) & 0xFF,
-                        gw_ip & 0xFF,
-                        gw_ip,
-                    });
-                } else {
-                    std.debug.print("NULL (not set yet!)\n", .{});
-                }
-            }
 
             // Check if this is from our gateway (typically x.x.x.1)
             if (self.gateway_ip) |gw_ip| {
@@ -237,10 +188,6 @@ pub const L2L3Translator = struct {
                         self.gateway_mac = new_mac;
                         self.last_gateway_learn = std.time.milliTimestamp();
                         self.arp_replies_learned += 1;
-
-                        if (self.options.verbose) {
-                            std.debug.print("[L2L3] Learned gateway MAC: {X:0>2}:{X:0>2}:{X:0>2}:{X:0>2}:{X:0>2}:{X:0>2}\n", .{ new_mac[0], new_mac[1], new_mac[2], new_mac[3], new_mac[4], new_mac[5] });
-                        }
                     }
                 }
             }
@@ -268,32 +215,12 @@ pub const L2L3Translator = struct {
                 // Limit queue size to prevent memory overflow
                 const max_queue_size = 10;
                 if (!already_pending and self.arp_reply_queue.items.len < max_queue_size) {
-                    if (self.options.verbose) {
-                        std.debug.print("[L2L3] Queuing ARP reply for {}.{}.{}.{} (queue: {}/{})\n", .{
-                            (target_ip >> 24) & 0xFF,           (target_ip >> 16) & 0xFF,
-                            (target_ip >> 8) & 0xFF,            target_ip & 0xFF,
-                            self.arp_reply_queue.items.len + 1, max_queue_size,
-                        });
-                    }
-
                     // Queue the ARP reply and mark IP as pending
                     try self.arp_reply_queue.append(self.allocator, reply);
                     try self.pending_arp_ips.put(target_ip, {});
                 } else {
                     // Already pending or queue full - free the duplicate reply
                     self.allocator.free(reply);
-                    if (already_pending and self.options.verbose) {
-                        std.debug.print("[L2L3] ⚠️  Duplicate ARP request for {}.{}.{}.{} (already queued)\n", .{
-                            (target_ip >> 24) & 0xFF, (target_ip >> 16) & 0xFF,
-                            (target_ip >> 8) & 0xFF,  target_ip & 0xFF,
-                        });
-                    } else if (self.options.verbose) {
-                        std.debug.print("[L2L3] ⚠️  ARP queue full ({}/{}), dropping request for {}.{}.{}.{}\n", .{
-                            self.arp_reply_queue.items.len, max_queue_size,
-                            (target_ip >> 24) & 0xFF,       (target_ip >> 16) & 0xFF,
-                            (target_ip >> 8) & 0xFF,        target_ip & 0xFF,
-                        });
-                    }
                 }
                 return null;
             }
@@ -309,19 +236,9 @@ pub const L2L3Translator = struct {
     }
 
     /// Manually set gateway IP and MAC
-    pub fn setGateway(self: *Self, ip: u32, mac: [6]u8) void {
-        self.gateway_ip = ip;
-        self.gateway_mac = mac;
-        self.last_gateway_learn = std.time.milliTimestamp();
-
-        if (self.options.verbose) {
-            std.debug.print("[L2L3] ⚙️  setGateway called: IP={}.{}.{}.{} (network order: 0x{X:0>8})\n", .{
-                (ip >> 24) & 0xFF,
-                (ip >> 16) & 0xFF,
-                (ip >> 8) & 0xFF,
-                ip & 0xFF,
-                ip,
-            });
+    pub fn setGateway(self: *Self, gateway_ip: u32) void {
+        if (self.gateway_ip == null or self.gateway_ip.? != gateway_ip) {
+            self.gateway_ip = gateway_ip;
         }
     }
 

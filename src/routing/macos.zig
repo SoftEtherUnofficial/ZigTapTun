@@ -22,6 +22,7 @@ pub const RouteManager = struct {
     }
 
     /// Get current default gateway by parsing netstat output
+    /// Returns without error if no gateway exists (e.g., no network connection yet)
     pub fn getDefaultGateway(self: *Self) !void {
         const result = try std.process.Child.run(.{
             .allocator = self.allocator,
@@ -35,7 +36,8 @@ pub const RouteManager = struct {
         defer self.allocator.free(result.stderr);
 
         if (result.stdout.len == 0) {
-            return error.NoDefaultGateway;
+            std.log.info("No default gateway found (network may not be up yet)", .{});
+            return; // Not an error - just means no gateway to save
         }
 
         // Parse IP address (format: "192.168.1.1\n")
@@ -165,27 +167,30 @@ pub const RouteManager = struct {
             orig_gw[3],
         });
 
-        std.log.info("🔄 Restoring original routing (gateway: {s})", .{gw_str});
+        std.log.info("🔄 [ROUTE RESTORE] Starting restoration (gateway: {s})", .{gw_str});
 
         // Delete VPN default route
-        std.log.info("Removing VPN default route...", .{});
+        std.log.info("[ROUTE RESTORE] Step 1/3: Removing VPN default route...", .{});
         const delete_result = try std.process.Child.run(.{
             .allocator = self.allocator,
             .argv = &[_][]const u8{ "route", "delete", "default" },
         });
         defer self.allocator.free(delete_result.stdout);
         defer self.allocator.free(delete_result.stderr);
+        std.log.info("[ROUTE RESTORE] Step 1/3 ✅ VPN route deleted", .{});
 
         // Restore original default route
-        std.log.info("✅ Restoring original default route: {s}", .{gw_str});
+        std.log.info("[ROUTE RESTORE] Step 2/3: Restoring original default route: {s}", .{gw_str});
         const add_result = try std.process.Child.run(.{
             .allocator = self.allocator,
             .argv = &[_][]const u8{ "route", "add", "default", gw_str },
         });
         defer self.allocator.free(add_result.stdout);
         defer self.allocator.free(add_result.stderr);
+        std.log.info("[ROUTE RESTORE] Step 2/3 ✅ Original route restored", .{});
 
         // Clean up VPN server host routes
+        std.log.info("[ROUTE RESTORE] Step 3/3: Cleaning up {} VPN server routes...", .{self.vpn_server_ips.items.len});
         for (self.vpn_server_ips.items) |server_ip| {
             var server_buf: [16]u8 = undefined;
             const server_str = try std.fmt.bufPrint(&server_buf, "{d}.{d}.{d}.{d}", .{
@@ -204,7 +209,7 @@ pub const RouteManager = struct {
             defer self.allocator.free(cleanup_result.stderr);
         }
 
-        std.log.info("✅ Routing restored successfully", .{});
+        std.log.info("[ROUTE RESTORE] ✅ All routing restored successfully", .{});
         self.routes_configured = false;
     }
 

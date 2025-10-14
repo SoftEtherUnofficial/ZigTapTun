@@ -90,23 +90,37 @@ pub const TunAdapter = struct {
             .write_buffer = write_buffer,
         };
 
+        // DEBUG: Verify device is valid after copy
+        std.debug.print("[DEBUG] TunAdapter.open: device copied, name_len={d}, name={s}\n", .{ self.device.name_len, self.device.name[0..self.device.name_len] });
+
         return self;
     }
 
     /// Close device and free resources
     pub fn close(self: *Self) void {
+        std.log.info("[TUN CLOSE] Starting TUN adapter cleanup...", .{});
+
         // ✅ CRITICAL: Restore routes BEFORE closing device!
         inline for (.{RouteManager}) |RM| {
             if (RM != void and self.route_manager != null) {
+                std.log.info("[TUN CLOSE] Restoring routes...", .{});
                 self.route_manager.?.deinit();
+                std.log.info("[TUN CLOSE] ✅ Routes restored", .{});
             }
         }
 
+        std.log.info("[TUN CLOSE] Closing TUN device...", .{});
         self.device.close();
+        std.log.info("[TUN CLOSE] ✅ TUN device closed", .{});
+
+        std.log.info("[TUN CLOSE] Cleaning up translator...", .{});
         self.translator.deinit();
+        std.log.info("[TUN CLOSE] ✅ Translator cleaned up", .{});
+
         self.allocator.free(self.read_buffer);
         self.allocator.free(self.write_buffer);
         self.allocator.destroy(self);
+        std.log.info("[TUN CLOSE] ✅ TUN adapter cleanup complete", .{});
     }
 
     /// Read Ethernet frame from TUN device
@@ -181,6 +195,7 @@ pub const TunAdapter = struct {
 
     /// Get device name (e.g., "utun4")
     pub fn getDeviceName(self: *Self) []const u8 {
+        std.debug.print("[DEBUG] TunAdapter.getDeviceName: about to call device.getName(), device.name_len={d}\n", .{self.device.name_len});
         return self.device.getName();
     }
 

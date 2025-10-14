@@ -38,7 +38,7 @@ pub const Option = enum(u8) {
 };
 
 /// DHCP Packet Format (RFC 2131, Section 2)
-pub const DhcpPacket = packed struct {
+pub const DhcpPacket = extern struct {
     op: u8, // 1 = BOOTREQUEST, 2 = BOOTREPLY
     htype: u8, // Hardware type (1 = Ethernet)
     hlen: u8, // Hardware address length (6 for Ethernet)
@@ -263,7 +263,7 @@ pub const DhcpClient = struct {
             .ip_address = ip_address,
             .subnet_mask = [_]u8{ 255, 255, 255, 0 }, // default
             .gateway = [_]u8{ 0, 0, 0, 0 },
-            .dns_servers = std.ArrayList([4]u8).init(self.allocator),
+            .dns_servers = .{},
             .lease_time = 86400, // default 24 hours
             .renewal_time = 43200, // default T1 = 50%
             .rebinding_time = 75600, // default T2 = 87.5%
@@ -297,7 +297,7 @@ pub const DhcpClient = struct {
                         if (i + 4 <= len) {
                             var dns: [4]u8 = undefined;
                             @memcpy(&dns, packet.options[offset + i .. offset + i + 4]);
-                            try lease.dns_servers.append(dns);
+                            try lease.dns_servers.append(self.allocator, dns);
                         }
                     }
                 },

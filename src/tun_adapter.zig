@@ -198,9 +198,13 @@ pub const TunAdapter = struct {
         return self.device.getName();
     }
 
-    /// Get device file descriptor
+    /// Get device file descriptor (Unix) or handle (Windows)
     pub fn getFd(self: *Self) i32 {
-        return self.device.fd;
+        return switch (builtin.os.tag) {
+            .macos, .ios, .linux => self.device.fd,
+            .windows => @intCast(@intFromPtr(self.device.handle)),
+            else => -1,
+        };
     }
 
     /// Get learned IP address (auto-detected from outgoing packets)

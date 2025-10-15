@@ -148,6 +148,18 @@ pub const TunAdapter = struct {
     /// Write Ethernet frame to TUN device
     /// Automatically translates Ethernet frame to IP packet and handles AF header
     pub fn writeEthernet(self: *Self, eth_frame: []const u8) !void {
+        // DEBUG: Log incoming write attempts
+        if (eth_frame.len >= 14) {
+            const ethertype = std.mem.readInt(u16, eth_frame[12..14], .big);
+            if (ethertype == 0x0800 and eth_frame.len >= 35) {
+                const ip_proto = eth_frame[23];
+                if (ip_proto == 1) { // ICMP
+                    const icmp_type = eth_frame[34];
+                    std.debug.print("[TunAdapter.writeEthernet] 🔽 Writing {d} byte ICMP packet (type={d}) to TUN device\n", .{ eth_frame.len, icmp_type });
+                }
+            }
+        }
+
         // Translate Ethernet → IP (may return null for ARP, etc.)
         const maybe_ip = try self.translator.ethernetToIp(eth_frame);
 
@@ -163,6 +175,19 @@ pub const TunAdapter = struct {
 
             // Write to device
             try self.device.write(packet_with_header);
+
+            // DEBUG: Confirm write succeeded
+            if (eth_frame.len >= 35 and eth_frame[23] == 1) {
+                std.debug.print("[TunAdapter.writeEthernet] ✅ ICMP write completed successfully\n", .{});
+            }
+        } else {
+            // DEBUG: Packet was handled internally
+            if (eth_frame.len >= 14) {
+                const ethertype = std.mem.readInt(u16, eth_frame[12..14], .big);
+                if (ethertype == 0x0800 and eth_frame.len >= 35 and eth_frame[23] == 1) {
+                    std.debug.print("[TunAdapter.writeEthernet] ⚠️  ICMP packet returned null from ethernetToIp (filtered?)\n", .{});
+                }
+            }
         }
         // If null, packet was handled internally (e.g., ARP reply sent)
     }

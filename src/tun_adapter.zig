@@ -255,6 +255,24 @@ pub const TunAdapter = struct {
             return error.RouteManagementDisabled;
         }
     }
+
+    /// Configure VPN network route (for point-to-point TUN interfaces)
+    /// This adds an explicit route for the VPN subnet through the gateway
+    /// Critical for macOS TUN interfaces where routing isn't automatic
+    pub fn configureVpnNetworkRoute(self: *Self, network: [4]u8, netmask: [4]u8, gateway: [4]u8) !void {
+        inline for (.{RouteManager}) |RM| {
+            if (RM == void) {
+                return error.PlatformNotSupported;
+            }
+        }
+
+        if (self.route_manager) |rm| {
+            try rm.addNetworkRoute(network, netmask, gateway);
+        } else {
+            return error.RouteManagementDisabled;
+        }
+    }
+
     pub const TranslatorStats = struct {
         packets_l3_to_l2: u64,
         packets_l2_to_l3: u64,

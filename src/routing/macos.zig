@@ -139,6 +139,50 @@ pub const RouteManager = struct {
         try self.vpn_server_ips.append(destination);
     }
 
+    /// Add network route for VPN subnet (e.g., 10.21.0.0/16 via gateway)
+    /// This is critical for point-to-point TUN interfaces on macOS
+    pub fn addNetworkRoute(self: *Self, network: [4]u8, netmask: [4]u8, gateway: [4]u8) !void {
+        var net_buf: [16]u8 = undefined;
+        const net_str = try std.fmt.bufPrint(&net_buf, "{d}.{d}.{d}.{d}", .{
+            network[0],
+            network[1],
+            network[2],
+            network[3],
+        });
+
+        var mask_buf: [16]u8 = undefined;
+        const mask_str = try std.fmt.bufPrint(&mask_buf, "{d}.{d}.{d}.{d}", .{
+            netmask[0],
+            netmask[1],
+            netmask[2],
+            netmask[3],
+        });
+
+        var gw_buf: [16]u8 = undefined;
+        const gw_str = try std.fmt.bufPrint(&gw_buf, "{d}.{d}.{d}.{d}", .{
+            gateway[0],
+            gateway[1],
+            gateway[2],
+            gateway[3],
+        });
+
+        std.log.info("🔧 Adding VPN network route: {s}/{s} via {s}", .{ net_str, mask_str, gw_str });
+
+        const result = try std.process.Child.run(.{
+            .allocator = self.allocator,
+            .argv = &[_][]const u8{ "route", "add", "-net", net_str, gw_str, "-netmask", mask_str },
+        });
+        defer self.allocator.free(result.stdout);
+        defer self.allocator.free(result.stderr);
+
+        if (result.term != .Exited or result.term.Exited != 0) {
+            std.log.warn("Failed to add network route: {s}", .{result.stderr});
+            return error.RouteAddFailed;
+        }
+
+        std.log.info("✅ VPN network route added successfully", .{});
+    }
+
     /// Restore original routing configuration
     pub fn restore(self: *Self) !void {
         if (!self.routes_configured or self.local_gateway == null) {

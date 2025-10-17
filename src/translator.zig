@@ -148,6 +148,37 @@ pub const L2L3Translator = struct {
         if (ethertype == 0x0800 or ethertype == 0x86DD) {
             // IPv4 or IPv6 - strip Ethernet header
             ip_packet = eth_frame[14..];
+
+            // 🔥 FIX: Learn gateway MAC from ANY packet from gateway IP (not just ARP replies!)
+            // Many VPN servers don't respond to ARP requests, but we can learn MAC from DHCP/ICMP/etc.
+            if (ethertype == 0x0800 and ip_packet.len >= 20 and self.options.learn_gateway_mac) {
+                const src_ip = std.mem.readInt(u32, ip_packet[12..16], .big);
+
+                // If this packet is from our gateway, learn its MAC address
+                if (self.gateway_ip) |gw_ip| {
+                    if (src_ip == gw_ip) {
+                        var new_mac: [6]u8 = undefined;
+                        @memcpy(&new_mac, eth_frame[6..12]); // Source MAC from Ethernet header
+
+                        const changed = if (self.gateway_mac) |old_mac|
+                            !std.mem.eql(u8, &old_mac, &new_mac)
+                        else
+                            true;
+
+                        if (changed) {
+                            self.gateway_mac = new_mac;
+                            self.last_gateway_learn = std.time.milliTimestamp();
+                            std.debug.print("[🎯 GATEWAY MAC LEARNED] {X:0>2}:{X:0>2}:{X:0>2}:{X:0>2}:{X:0>2}:{X:0>2} from IP packet (src=", .{
+                                new_mac[0], new_mac[1], new_mac[2], new_mac[3], new_mac[4], new_mac[5],
+                            });
+                            std.debug.print("{}.{}.{}.{})\n", .{
+                                (src_ip >> 24) & 0xFF, (src_ip >> 16) & 0xFF,
+                                (src_ip >> 8) & 0xFF,  src_ip & 0xFF,
+                            });
+                        }
+                    }
+                }
+            }
         } else {
             // Unknown EtherType - ignore
             return null;

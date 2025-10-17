@@ -148,14 +148,15 @@ pub const TunAdapter = struct {
     /// Write Ethernet frame to TUN device
     /// Automatically translates Ethernet frame to IP packet and handles AF header
     pub fn writeEthernet(self: *Self, eth_frame: []const u8) !void {
-        // DEBUG: Log incoming write attempts
+        // DEBUG: Log ALL incoming packets from VPN server
         if (eth_frame.len >= 14) {
             const ethertype = std.mem.readInt(u16, eth_frame[12..14], .big);
             if (ethertype == 0x0800 and eth_frame.len >= 35) {
                 const ip_proto = eth_frame[23];
                 if (ip_proto == 1) { // ICMP
                     const icmp_type = eth_frame[34];
-                    std.debug.print("[TunAdapter.writeEthernet] 🔽 Writing {d} byte ICMP packet (type={d}) to TUN device\n", .{ eth_frame.len, icmp_type });
+                    const icmp_code = if (eth_frame.len > 35) eth_frame[35] else 0;
+                    std.debug.print("🔔 [TUN Write] ICMP packet from VPN: type={d} code={d} ({s}), size={d}\n", .{ icmp_type, icmp_code, if (icmp_type == 0) "ECHO REPLY" else if (icmp_type == 8) "ECHO REQUEST" else "OTHER", eth_frame.len });
                 }
             }
         }

@@ -1,65 +1,40 @@
 //! ZigTapTun - Cross-Platform TAP/TUN Library
 //!
-//! Complete TUN/TAP device abstraction with L2↔L3 protocol translation.
+//! Platform-specific TUN/TAP device abstraction and routing management.
+//! ONLY handles L3 (IP) device I/O and system routing - no protocol translation!
 //!
 //! Features:
 //! - Platform-specific device I/O (macOS utun, Linux /dev/tun, Windows Wintun)
-//! - L2↔L3 translation (Ethernet ↔ IP)
-//! - ARP handling
-//! - IP and gateway MAC learning
+//! - Route management (save/restore default gateway, add host routes)
+//! - Cross-platform device abstraction
+//!
+//! NOT included (moved to parent SoftEtherClient/src/protocol/):
+//! - L2↔L3 translation (translator.zig)
+//! - ARP handling (arp.zig)
+//! - DHCP client (dhcp_client.zig)
+//! - DNS protocol (dns.zig)
 
 const std = @import("std");
 const builtin = @import("builtin");
 
-// Core modules
-pub const L2L3Translator = @import("translator.zig").L2L3Translator;
-pub const ArpHandler = @import("arp.zig").ArpHandler;
-pub const DhcpClient = @import("dhcp_client.zig").DhcpClient;
-pub const DhcpPacket = @import("dhcp_client.zig").DhcpPacket;
-
-// C FFI exports (for iOS/Android packet adapters)
-// DISABLED: SoftEtherClient provides its own C wrapper in taptun_wrapper.zig
-// to avoid symbol collisions. Uncomment if building TapTun as standalone library.
-// pub const c_ffi = @import("c_ffi.zig");
-
-// Force compilation and export of C FFI functions
-// DISABLED: See above
-// comptime {
-//     _ = c_ffi.taptun_translator_create;
-//     _ = c_ffi.taptun_translator_destroy;
-//     _ = c_ffi.taptun_ethernet_to_ip;
-//     _ = c_ffi.taptun_ip_to_ethernet;
-//     _ = c_ffi.taptun_translator_stats;
-//     _ = c_ffi.taptun_translator_has_gateway_mac;
-//     _ = c_ffi.taptun_translator_get_gateway_mac;
-// }
-
-// High-level adapter (combines device + translator)
-pub const TunAdapter = @import("tun_adapter.zig").TunAdapter;
-
 // Platform-specific device implementations
 pub const platform = switch (builtin.os.tag) {
-    .macos, .ios => @import("platform/macos.zig"),
-    .windows => @import("platform/windows.zig"),
-    else => @compileError("Platform not yet supported. Available: macOS, Windows. Coming soon: Linux, FreeBSD"),
+    .macos, .ios => @import("device/macos.zig"),
+    .linux => @import("device/linux.zig"),
+    .windows => @import("device/windows.zig"),
+    else => @compileError("Platform not yet supported. Available: macOS, Linux, Windows"),
 };
 
 /// Platform-specific TUN device (low-level, for advanced users)
 pub const TunDevice = switch (builtin.os.tag) {
     .macos, .ios => platform.MacOSUtunDevice,
+    .linux => platform.LinuxTunDevice,
     .windows => platform.WindowsTapDevice,
     else => @compileError("Platform not yet supported"),
 };
 
-// Public types for L2L3 translation
-pub const TranslatorOptions = struct {
-    our_mac: [6]u8,
-    learn_ip: bool = true,
-    learn_gateway_mac: bool = true,
-    handle_arp: bool = true,
-    arp_timeout_ms: u32 = 60000,
-    verbose: bool = false,
-};
+// Route management (platform-agnostic interface)
+pub const RouteManager = @import("routing.zig").RouteManager;
 
 /// Device options for TUN/TAP creation
 pub const DeviceOptions = struct {
@@ -70,16 +45,12 @@ pub const DeviceOptions = struct {
 
 /// Error set for TUN/TAP operations
 pub const TapTunError = error{
-    InvalidPacket,
-    TranslationFailed,
     DeviceNotFound,
     InvalidConfiguration,
     UnsupportedPlatform,
+    RoutingFailed,
 };
 
 test {
     std.testing.refAllDecls(@This());
-    // Force compilation of C FFI exports
-    // DISABLED: See c_ffi comment above
-    // _ = c_ffi;
 }

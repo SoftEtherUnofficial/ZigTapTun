@@ -1,5 +1,6 @@
 const std = @import("std");
 const routing = @import("../routing.zig");
+const ifconfig = @import("../utils/ifconfig.zig");
 
 const ArrayListType = std.ArrayList([4]u8);
 
